@@ -11,6 +11,7 @@ KNOWN_DATASETS = (
     "rpa_topology",
     "rpa_daily_topology",
     "rpa_ftth_mapping",
+    "rpa_dfon_segments",
     "netlynx_fact",
 )
 
@@ -66,8 +67,7 @@ def data_layout(config: ApplicationConfig) -> html.Div:
             html.H2("Data"),
             html.P(
                 "Readers resolve only promoted or last-known-good generations. "
-                "Newest directory or mtime is never authoritative. "
-                "Use tools/publish_sample_data.py for synthetic local demo data only.",
+                "CLI: publish-topology, publish-fact, publish-ftth, build-daily, publish-sample.",
                 className="muted",
             ),
             *sections,
