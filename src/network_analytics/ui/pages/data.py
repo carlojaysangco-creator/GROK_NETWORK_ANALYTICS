@@ -7,7 +7,12 @@ from dash import html
 from network_analytics.data_platform import GenerationStore
 from network_analytics.shared.config import ApplicationConfig
 
-KNOWN_DATASETS = ("rpa_topology", "netlynx_fact")
+KNOWN_DATASETS = (
+    "rpa_topology",
+    "rpa_daily_topology",
+    "rpa_ftth_mapping",
+    "netlynx_fact",
+)
 
 
 def _store(config: ApplicationConfig) -> GenerationStore:
@@ -61,7 +66,8 @@ def data_layout(config: ApplicationConfig) -> html.Div:
             html.H2("Data"),
             html.P(
                 "Readers resolve only promoted or last-known-good generations. "
-                "Newest directory or mtime is never authoritative.",
+                "Newest directory or mtime is never authoritative. "
+                "Use tools/publish_sample_data.py for synthetic local demo data only.",
                 className="muted",
             ),
             *sections,
