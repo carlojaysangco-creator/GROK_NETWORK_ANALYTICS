@@ -107,6 +107,7 @@ class ApplicationConfig:
     port: int = 8050
     collection_enabled: bool = False
     live_topology_enabled: bool = False
+    admin_publish_token: str | None = None
 
     def validate(self) -> "ApplicationConfig":
         self.paths.validate()
@@ -141,10 +142,12 @@ class ApplicationConfig:
             ),
             log_root=_under_project(root, values.get("NETWORK_ANALYTICS_LOG_ROOT", "logs"), name="log root"),
         )
+        token = values.get("NETWORK_ANALYTICS_ADMIN_TOKEN")
         return cls(
             paths=paths,
             host=values.get("NETWORK_ANALYTICS_HOST", "127.0.0.1"),
             port=int(values.get("NETWORK_ANALYTICS_PORT", "8050")),
             collection_enabled=_as_bool(values.get("NETWORK_ANALYTICS_COLLECTION_ENABLED")),
             live_topology_enabled=_as_bool(values.get("NETWORK_ANALYTICS_LIVE_TOPOLOGY_ENABLED")),
+            admin_publish_token=(token.strip() if token and token.strip() else None),
         ).validate()

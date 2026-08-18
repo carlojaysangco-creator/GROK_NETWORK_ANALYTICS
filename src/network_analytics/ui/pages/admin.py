@@ -1,4 +1,4 @@
-"""Admin page – local CSV publish under write lock with audit log."""
+"""Admin page – local CSV publish under write lock with optional token and audit."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from dash import Dash, Input, Output, State, dcc, html
 
 from network_analytics.data_platform import GenerationStore, SourceIdentity
 from network_analytics.netlynx import publish_observations
+from network_analytics.netlynx.live_registry import LiveJobRegistry
 from network_analytics.route_path_analysis import publish_ftth_mapping, publish_link_topology
 from network_analytics.shared.audit import PublishAuditLog, audit_event
 from network_analytics.shared.config import ApplicationConfig
@@ -41,13 +42,31 @@ def admin_layout(config: ApplicationConfig) -> html.Div:
         )
         for e in recent
     ]
+    jobs = LiveJobRegistry(config.paths.runtime_root / "live").list_jobs(limit=10)
+    job_rows = [
+        html.Tr(
+            [
+                html.Td(j.get("job_id", "—")),
+                html.Td(j.get("state", "—")),
+                html.Td(str(j.get("live_validation_pending", ""))),
+                html.Td(j.get("error") or "—"),
+            ]
+        )
+        for j in jobs
+    ]
+    token_note = (
+        "Admin token is configured (NETWORK_ANALYTICS_ADMIN_TOKEN)."
+        if config.admin_publish_token
+        else "No admin token configured (publish allowed locally)."
+    )
     return html.Div(
         [
             html.H2("Admin"),
             html.P(
-                "Publish local CSV under a single-writer lock. Audit events are local-only.",
+                "Publish local CSV under a single-writer lock. Live jobs list is registry-only (no device I/O).",
                 className="muted",
             ),
+            html.P(token_note, className="muted"),
             html.Div(
                 [
                     html.Label("Dataset"),
@@ -63,12 +82,20 @@ def admin_layout(config: ApplicationConfig) -> html.Div:
                     ),
                 ],
                 className="field",
-                style={"maxWidth": "28rem", "marginBottom": "1rem"},
+                style={"maxWidth": "28rem", "marginBottom": "0.75rem"},
+            ),
+            html.Div(
+                [
+                    html.Label("Admin token (if configured)"),
+                    dcc.Input(id="admin-token", type="password", placeholder="optional", style={"width": "100%"}),
+                ],
+                className="field",
+                style={"maxWidth": "28rem", "marginBottom": "0.75rem"},
             ),
             html.Label("CSV text (header row required)"),
             dcc.Textarea(
                 id="admin-csv",
-                style={"width": "100%", "height": "180px", "fontFamily": "ui-monospace, monospace"},
+                style={"width": "100%", "height": "160px", "fontFamily": "ui-monospace, monospace"},
                 placeholder="AEnd_NE,ZEnd_NE,Capacity,InUti,OutUti,Interface_Type\nPE-A,CORE-1,100000,0.4,0.35,LAG_PARENT",
             ),
             html.Button(
@@ -97,6 +124,18 @@ def admin_layout(config: ApplicationConfig) -> html.Div:
                 ],
                 className="data-table",
             ),
+            html.H3("Live topology jobs (registry)"),
+            html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [html.Th("Job"), html.Th("State"), html.Th("Validation pending"), html.Th("Error")]
+                        )
+                    ),
+                    html.Tbody(job_rows or [html.Tr([html.Td("No jobs", colSpan=4)])]),
+                ],
+                className="data-table",
+            ),
         ],
         className="panel",
     )
@@ -108,11 +147,15 @@ def register_admin(app: Dash, config: ApplicationConfig) -> None:
         Input("admin-publish", "n_clicks"),
         State("admin-dataset", "value"),
         State("admin-csv", "value"),
+        State("admin-token", "value"),
         prevent_initial_call=True,
     )
-    def _publish(n_clicks, dataset, csv_text):
+    def _publish(n_clicks, dataset, csv_text, token):
         if not n_clicks:
             return ""
+        if config.admin_publish_token:
+            if not token or str(token) != config.admin_publish_token:
+                return html.P("Admin token required or invalid.", className="error")
         if not csv_text or not str(csv_text).strip():
             return html.P("Paste CSV text with a header row.", className="error")
         try:
@@ -159,13 +202,8 @@ def register_admin(app: Dash, config: ApplicationConfig) -> None:
         except Exception as exc:  # noqa: BLE001
             return html.P(f"Publish failed: {exc}", className="error")
 
-        return html.Div(
-            [
-                html.P(
-                    f"Published {name} generation {ref.generation_id} "
-                    f"(status={ref.manifest.status.value}, accepted={ref.manifest.accepted_count}, "
-                    f"rejected={ref.manifest.rejected_count})."
-                ),
-                html.P("Refresh Admin/Data pages to see audit and lineage.", className="muted"),
-            ]
+        return html.P(
+            f"Published {name} generation {ref.generation_id} "
+            f"(status={ref.manifest.status.value}, accepted={ref.manifest.accepted_count}, "
+            f"rejected={ref.manifest.rejected_count})."
         )
