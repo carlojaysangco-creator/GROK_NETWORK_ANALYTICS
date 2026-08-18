@@ -1,4 +1,4 @@
-"""Route Path Analysis page – native engine; FTTH and promoted topology."""
+"""Route Path Analysis – P2P, FTTH, Compare."""
 
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ from network_analytics.route_path_analysis import (
     resolve_daily_graph,
     resolve_weekly_graph,
 )
+from network_analytics.route_path_analysis.compare import compare_pair
 from network_analytics.route_path_analysis.demo_graph import build_demo_graph, demo_nodes
 from network_analytics.route_path_analysis.ftth_analysis import analyze_ftth_access
+from network_analytics.route_path_analysis.history import append_run
 from network_analytics.shared.config import ApplicationConfig
 
 
@@ -38,13 +40,13 @@ def _path_cards(pair) -> list:
     )
     for path in pair.paths:
         hop_text = " → ".join(path.nodes)
-        util = path.maximum_utilization_pct
-        cap = path.bottleneck_capacity_mbps
         meta = []
-        if cap is not None:
-            meta.append(f"bottleneck {cap:g} Mbps")
-        if util is not None:
-            meta.append(f"max util {util:g}%")
+        if path.bottleneck_capacity_mbps is not None:
+            meta.append(f"bottleneck {path.bottleneck_capacity_mbps:g} Mbps")
+        if path.maximum_utilization_pct is not None:
+            meta.append(f"max util {path.maximum_utilization_pct:g}%")
+        if path.minimum_remaining_mbps is not None:
+            meta.append(f"min remaining {path.minimum_remaining_mbps:g} Mbps")
         cards.append(
             html.Div(
                 [
@@ -74,8 +76,7 @@ def rpa_layout(config: ApplicationConfig) -> html.Div:
         [
             html.H2("Route Path Analysis"),
             html.P(
-                "Native path engine. Equal-cost defaults are canonical; alternates are display-only. "
-                "Daily never falls back to Weekly. FTTH expands Access NE via promoted mapping.",
+                "Native engine. Daily never falls back to Weekly. Compare shows both when present.",
                 className="muted",
             ),
             html.P(f"Topology source: {source_label}", className="muted"),
@@ -89,6 +90,7 @@ def rpa_layout(config: ApplicationConfig) -> html.Div:
                                 options=[
                                     {"label": "Point to point", "value": "ptp"},
                                     {"label": "FTTH Access NE", "value": "ftth"},
+                                    {"label": "Compare Weekly/Daily", "value": "compare"},
                                 ],
                                 value="ptp",
                                 clearable=False,
@@ -174,7 +176,6 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
     def _run(_n, mode, frequency, source, destination, alternates, bw):
         if not source:
             return html.P("Select source / Access NE.", className="muted")
-
         try:
             alt = int(alternates if alternates is not None else 2)
             additional = float(bw if bw is not None else 0)
@@ -182,6 +183,22 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
             return html.P("Alternates must be int 0–10; BW must be numeric.", className="error")
 
         store = _store(config)
+
+        if mode == "compare":
+            if not destination:
+                return html.P("Select destination for Compare.", className="muted")
+            cmp = compare_pair(store, str(source), str(destination))
+            blocks = [html.P(w, className="muted") for w in cmp.warnings]
+            if cmp.weekly is not None:
+                blocks.append(html.H3(f"Weekly ({cmp.weekly_generation_id})"))
+                blocks.extend(_path_cards(cmp.weekly.pairs[0]))
+            if cmp.daily is not None:
+                blocks.append(html.H3(f"Daily ({cmp.daily_generation_id})"))
+                blocks.extend(_path_cards(cmp.daily.pairs[0]))
+            if cmp.weekly is None and cmp.daily is None:
+                blocks.append(html.P("No topology available for Compare.", className="error"))
+            return html.Div(blocks)
+
         freq = TransportFrequency.WEEKLY
         try:
             freq = TransportFrequency(str(frequency or "weekly").lower())
@@ -193,6 +210,7 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
                 topo = resolve_daily_graph(store)
                 graph = topo.graph
                 source_note = f"Daily topology {topo.generation_id}"
+                gen_id = topo.generation_id
                 alt = 0
                 additional = 0.0
             else:
@@ -200,9 +218,11 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
                 if weekly is not None:
                     graph = weekly.graph
                     source_note = f"Using promoted topology {weekly.generation_id}"
+                    gen_id = weekly.generation_id
                 else:
                     graph = build_demo_graph()
                     source_note = "Using synthetic demo graph"
+                    gen_id = None
         except DailyUnavailable as exc:
             return html.P(str(exc), className="error")
 
@@ -215,12 +235,18 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
                 additional_bw_mbps=additional,
             )
             blocks = [html.P(source_note, className="muted")]
-            blocks.append(html.P(f"Access NE {result.access_ne} → Homing BNGs: {', '.join(result.homing_bngs) or '—'}"))
+            blocks.append(
+                html.P(f"Access NE {result.access_ne} → Homing BNGs: {', '.join(result.homing_bngs) or '—'}")
+            )
             for w in result.warnings:
                 blocks.append(html.P(w, className="muted"))
             for bng, analysis in result.per_bng:
                 blocks.append(html.H3(f"To {bng}"))
                 blocks.extend(_path_cards(analysis.pairs[0]))
+                try:
+                    append_run(config.paths.history_root if hasattr(config.paths, 'history_root') else config.paths.data_root / "history", analysis, topology_generation_id=gen_id)
+                except Exception:
+                    pass
             return html.Div(blocks)
 
         if not destination:
@@ -235,6 +261,15 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
             result = analyze(graph, request)
         except ValueError as exc:
             return html.P(str(exc), className="error")
+
+        try:
+            append_run(
+                config.paths.data_root / "history",
+                result,
+                topology_generation_id=gen_id,
+            )
+        except Exception:
+            pass
 
         cards = [html.P(source_note, className="muted")]
         cards.extend(_path_cards(result.pairs[0]))

@@ -42,7 +42,7 @@ class RoutePair:
 class RouteRequest:
     pairs: tuple[RoutePair, ...]
     frequency: TransportFrequency = TransportFrequency.WEEKLY
-    pairing_mode: str = "paired"  # paired | all_combinations
+    pairing_mode: str = "paired"
     alternate_branches: int = 2
 
 
@@ -53,6 +53,7 @@ class HopMetric:
     weight: float
     capacity_mbps: float | None = None
     utilization_pct: float | None = None
+    remaining_mbps: float | None = None
     link_type: str = "Unavailable"
     member_count: int | None = None
 
@@ -75,6 +76,11 @@ class PathMetric:
     def maximum_utilization_pct(self) -> float | None:
         values = [h.utilization_pct for h in self.hops if h.utilization_pct is not None]
         return max(values) if values else None
+
+    @property
+    def minimum_remaining_mbps(self) -> float | None:
+        values = [h.remaining_mbps for h in self.hops if h.remaining_mbps is not None]
+        return min(values) if values else None
 
 
 @dataclass(frozen=True, slots=True)

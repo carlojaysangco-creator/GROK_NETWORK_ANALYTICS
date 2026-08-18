@@ -1,8 +1,4 @@
-"""Native deterministic path selection.
-
-Equal-minimum-weight membership is canonical. Default paths share the ECMP
-bucket; alternates are display-only and never replace defaults.
-"""
+"""Native deterministic path selection."""
 
 from __future__ import annotations
 
@@ -10,7 +6,7 @@ from dataclasses import dataclass
 
 import networkx as nx
 
-from .contracts import PathClass, PathMetric, PathResultType, HopMetric
+from .contracts import HopMetric, PathClass, PathMetric, PathResultType
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,31 +37,22 @@ def select_paths(
 
     if source not in graph or destination not in graph:
         return PathSelection((), (), None, ("endpoint not present in graph",))
-
     if source == destination:
         return PathSelection((), (), 0.0, ("source and destination are identical",))
 
     try:
-        # All simple paths is too expensive for large graphs; use shortest-path
-        # variants with weight and then expand equal-cost membership.
         min_weight = nx.shortest_path_length(graph, source, destination, weight="weight")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return PathSelection((), (), None, ("no path",))
 
-    # Collect equal-cost shortest paths (ECMP defaults)
     try:
-        raw_shortest = list(
-            nx.all_shortest_paths(graph, source, destination, weight="weight")
-        )
+        raw_shortest = list(nx.all_shortest_paths(graph, source, destination, weight="weight"))
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return PathSelection((), (), None, ("no path",))
 
-    # Deterministic ordering
     default_paths = tuple(sorted(tuple(p) for p in raw_shortest))
-
     alternates: list[tuple[str, ...]] = []
     if alternate_branches > 0:
-        # Simple alternate strategy: loopless paths ordered by weight, skipping defaults
         default_set = set(default_paths)
         candidates: list[tuple[float, tuple[str, ...]]] = []
         try:
@@ -73,8 +60,7 @@ def select_paths(
                 t = tuple(path)
                 if t in default_set:
                     continue
-                w = path_total_weight(graph, list(t))
-                candidates.append((w, t))
+                candidates.append((path_total_weight(graph, list(t)), t))
         except nx.NetworkXError:
             pass
         candidates.sort(key=lambda item: (item[0], item[1]))
@@ -97,10 +83,7 @@ def select_paths(
     )
 
 
-def selection_to_metrics(
-    graph: nx.Graph,
-    selection: PathSelection,
-) -> tuple[PathMetric, ...]:
+def selection_to_metrics(graph: nx.Graph, selection: PathSelection) -> tuple[PathMetric, ...]:
     metrics: list[PathMetric] = []
     order = 1
     for path in selection.default_paths:
@@ -131,13 +114,20 @@ def _to_metric(
     hops: list[HopMetric] = []
     for left, right in zip(path[:-1], path[1:]):
         edge = graph[left][right]
+        capacity = _maybe_float(edge.get("capacity_mbps"))
+        util = _maybe_float(edge.get("max_util"))
+        remaining = None
+        if capacity is not None:
+            used = 0.0 if util is None else (util / 100.0) * capacity
+            remaining = max(0.0, capacity - used)
         hops.append(
             HopMetric(
                 source=str(left),
                 destination=str(right),
                 weight=float(edge.get("weight", 1.0) or 1.0),
-                capacity_mbps=_maybe_float(edge.get("capacity_mbps")),
-                utilization_pct=_maybe_float(edge.get("max_util")),
+                capacity_mbps=capacity,
+                utilization_pct=util,
+                remaining_mbps=remaining,
                 link_type=str(edge.get("link_type") or "Unavailable"),
                 member_count=_maybe_int(edge.get("member_count")),
             )
