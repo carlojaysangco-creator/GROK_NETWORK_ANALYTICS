@@ -12,6 +12,8 @@ KNOWN_DATASETS = (
     "rpa_daily_topology",
     "rpa_ftth_mapping",
     "rpa_dfon_segments",
+    "rpa_olt_homing",
+    "rpa_gold_devices",
     "netlynx_fact",
 )
 
@@ -66,8 +68,8 @@ def data_layout(config: ApplicationConfig) -> html.Div:
         [
             html.H2("Data"),
             html.P(
-                "Readers resolve only promoted or last-known-good generations. "
-                "CLI: publish-topology, publish-fact, publish-ftth, build-daily, publish-sample.",
+                "Promoted/LKG only. CLI: publish-topology, publish-fact (streaming), "
+                "publish-ftth, build-daily, publish-sample.",
                 className="muted",
             ),
             *sections,

@@ -1,4 +1,4 @@
-"""NetLynx monitoring + NOC case summary from promoted FACT."""
+"""NetLynx monitoring + NOC cases and graph summaries."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dash import html
 from network_analytics.data_platform import GenerationStore
 from network_analytics.netlynx import load_observations
 from network_analytics.netlynx.cases import detect_cases
+from network_analytics.netlynx.noc_graph import summarize_all_case_graphs
 from network_analytics.shared.config import ApplicationConfig
 
 
@@ -14,6 +15,7 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
     store = GenerationStore(config.paths.data_root / "generations")
     observations = load_observations(store)
     cases = detect_cases(store)
+    graphs = summarize_all_case_graphs(store)
 
     case_block: list = []
     if cases:
@@ -44,24 +46,55 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
             ),
         ]
 
+    graph_block: list = []
+    if graphs:
+        g_rows = []
+        for view in graphs:
+            sample = ", ".join(f"{a}-{z}" for a, z, _lid in view.edges[:5])
+            if len(view.edges) > 5:
+                sample += ", …"
+            g_rows.append(
+                html.Tr(
+                    [
+                        html.Td(view.case.case_id),
+                        html.Td(str(view.node_count)),
+                        html.Td(str(view.edge_count)),
+                        html.Td(sample or "—"),
+                    ]
+                )
+            )
+        graph_block = [
+            html.H3("Affected adjacency (text summary)"),
+            html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [html.Th("CaseId"), html.Th("Nodes"), html.Th("Edges"), html.Th("Sample")]
+                        )
+                    ),
+                    html.Tbody(g_rows),
+                ],
+                className="data-table",
+            ),
+        ]
+
     if not observations:
         return html.Div(
             [
                 html.H2("NetLynx"),
                 html.P(
-                    "No promoted FACT generation is available. "
-                    "Collection remains disabled; publish an offline cohort to populate this view.",
+                    "No promoted FACT generation. Collection disabled. "
+                    "Use: network-analytics publish-fact path/to/FACT.csv",
                     className="muted",
                 ),
                 *case_block,
+                *graph_block,
             ],
             className="panel",
         )
 
     parents = [
-        o
-        for o in observations
-        if o.interface_type.value in {"LAG_PARENT", "PHYSICAL"}
+        o for o in observations if o.interface_type.value in {"LAG_PARENT", "PHYSICAL"}
     ] or observations
 
     rows = []
@@ -87,11 +120,11 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
         [
             html.H2("NetLynx"),
             html.P(
-                f"Showing up to 100 parent/physical rows from promoted generation "
-                f"({observations[0].source_generation_id}). Collection is disabled.",
+                f"Promoted generation {observations[0].source_generation_id}. Collection disabled.",
                 className="muted",
             ),
             *case_block,
+            *graph_block,
             html.H3("Observations"),
             html.Table(
                 [

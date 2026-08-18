@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import runpy
 from pathlib import Path
 
-from network_analytics.data_platform import GenerationStore, SourceIdentity
-from network_analytics.netlynx import publish_observations
-from network_analytics.route_path_analysis import publish_ftth_mapping, publish_link_topology
+from network_analytics.data_platform import GenerationStore
+from network_analytics.netlynx.stream_publish import publish_fact_csv_streaming
 from network_analytics.route_path_analysis.loaders import (
     publish_daily_topology_from_fact,
     publish_ftth_file,
@@ -29,11 +27,6 @@ def _lock(config: ApplicationConfig) -> WriteLock:
     return WriteLock(config.paths.runtime_root / "write_lock.sqlite3")
 
 
-def _read_csv(path: Path) -> list[dict[str, str]]:
-    text = path.read_text(encoding="utf-8-sig")
-    return list(csv.DictReader(text.splitlines()))
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="GROK Network Analytics (local only)")
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -46,14 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_topo.add_argument("path", type=Path)
     p_topo.add_argument("--sheet", default=None)
 
-    p_fact = sub.add_parser("publish-fact", help="Publish FACT CSV")
+    p_fact = sub.add_parser("publish-fact", help="Publish FACT CSV (streaming)")
     p_fact.add_argument("path", type=Path)
 
     p_ftth = sub.add_parser("publish-ftth", help="Publish FTTH mapping CSV/XLSX")
     p_ftth.add_argument("path", type=Path)
     p_ftth.add_argument("--sheet", default=None)
 
-    sub.add_parser("build-daily", help="Build daily topology generation from promoted FACT")
+    sub.add_parser("build-daily", help="Build daily topology from promoted FACT")
     sub.add_parser("publish-sample", help="Publish synthetic sample cohorts")
 
     parser.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
@@ -100,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         runpy.run_path(str(script), run_name="__main__")
         return 0
 
-    with _lock(config).exclusive(timeout_seconds=60):
+    with _lock(config).exclusive(timeout_seconds=120):
         if command == "build-daily":
             ref = publish_daily_topology_from_fact(store, producer_version="0.1.0.dev0", promote=True)
             print(
@@ -153,10 +146,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if command == "publish-fact":
-            rows = _read_csv(args.path)
-            source = SourceIdentity(system="cli", path_or_job=str(args.path), sha256="local")
-            ref = publish_observations(
-                store, rows, producer_version="0.1.0.dev0", source=source, promote=True
+            ref = publish_fact_csv_streaming(
+                store, args.path, producer_version="0.1.0.dev0", promote=True
             )
             print(
                 json.dumps(
@@ -164,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
                         "dataset": "netlynx_fact",
                         "generation_id": ref.generation_id,
                         "status": ref.manifest.status.value,
+                        "accepted": ref.manifest.accepted_count,
+                        "rejected": ref.manifest.rejected_count,
                     }
                 )
             )
