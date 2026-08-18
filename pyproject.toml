@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-analytics"
+version = "0.1.0.dev0"
+description = "Clean native Network Analytics platform for fixed-network engineering and operations"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "dash>=4.0,<5",
+  "duckdb>=1.5,<2",
+  "flask>=3.1,<4",
+  "networkx>=3.5,<4",
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<4",
+]
+
+[project.optional-dependencies]
+collection = ["paramiko>=4.0,<5"]
+rpa = [
+  "numpy>=2.0,<3",
+  "pillow>=11,<12",
+  "pyvis>=0.3,<1",
+]
+test = ["pytest>=8.0,<9"]
+
+[project.scripts]
+network-analytics = "network_analytics.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+network_analytics = ["assets/*.css"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
