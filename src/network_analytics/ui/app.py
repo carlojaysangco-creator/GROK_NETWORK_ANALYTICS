@@ -8,7 +8,7 @@ from dash import Dash, Input, Output, dcc, html
 from flask import jsonify
 
 from network_analytics.shared.config import ApplicationConfig
-from network_analytics.ui.pages import register_rpa, rpa_layout
+from network_analytics.ui.pages import data_layout, netlynx_layout, register_rpa, rpa_layout
 
 
 _NAVIGATION = (
@@ -39,7 +39,7 @@ def _status_banner(config: ApplicationConfig) -> html.Div:
             html.Strong("Safe local mode"),
             html.Span(f"Collection {collection}"),
             html.Span(f"Live topology {live}"),
-            html.Span("Native RPA demo graph active"),
+            html.Span("Generation-backed data paths active"),
         ],
         id="runtime-status",
         className="status-banner",
@@ -74,8 +74,6 @@ def _not_found() -> html.Div:
 
 
 def create_dash_app(config: ApplicationConfig) -> Dash:
-    """Build the UI without starting a server or creating runtime files."""
-
     config.validate()
     assets = Path(__file__).resolve().parent / "assets"
     app = Dash(
@@ -134,15 +132,9 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
         if route == "/route-path-analysis":
             return rpa_layout(config)
         if route == "/netlynx":
-            return _placeholder(
-                "NetLynx",
-                "Operational link monitoring, trends, and anomalies. Collection remains disabled by default.",
-            )
+            return netlynx_layout(config)
         if route == "/data":
-            return _placeholder(
-                "Data",
-                "Generation lineage, promotion status, and reference / operational data visibility.",
-            )
+            return data_layout(config)
         if route == "/admin":
             return _placeholder(
                 "Admin",
