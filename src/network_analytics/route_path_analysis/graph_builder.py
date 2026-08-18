@@ -13,6 +13,8 @@ from .routing_policy import RoutingPolicy, default_policy
 def build_graph(
     records: Iterable[LinkRecord],
     policy: RoutingPolicy | None = None,
+    *,
+    prefer_explicit_weight: bool = True,
 ) -> nx.Graph:
     """Construct an undirected transport graph.
 
@@ -20,6 +22,9 @@ def build_graph(
     - Parallel PARENT/PHYSICAL edges aggregate capacity; max util takes max;
       weight takes minimum after policy resolution.
     - Missing capacity/util remain None.
+    - When prefer_explicit_weight is True, a non-default row weight is used as-is
+      (still subject to N4I floor). Default weight 1.0 may be replaced by
+      link-type policy weights.
     """
 
     active = policy or default_policy()
@@ -32,20 +37,14 @@ def build_graph(
         a, z = record.normalized_ends()
         if a == z:
             continue
-        # Explicit weight from row wins; otherwise policy/link-type
-        explicit = None if record.weight == 1.0 and record.link_type else record.weight
-        # Prefer explicit non-default weights; if weight is default 1.0, still allow policy
+
+        explicit = record.weight if prefer_explicit_weight and record.weight != 1.0 else None
         resolved = active.edge_weight(
             a_end=a,
             z_end=z,
             link_type=record.link_type,
-            explicit_weight=record.weight if record.weight != 1.0 else None,
+            explicit_weight=explicit,
         )
-        # If row carried weight==1.0 and link_type is TRANSPORT, policy may still return 1.0
-        if record.weight != 1.0:
-            resolved = active.edge_weight(
-                a_end=a, z_end=z, link_type=record.link_type, explicit_weight=record.weight
-            )
 
         key = frozenset({a, z})
         slot = aggregates.get(key)

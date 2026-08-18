@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import runpy
 from pathlib import Path
 
 from network_analytics.data_platform import GenerationStore, SourceIdentity
@@ -42,7 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("publish-sample", help="Publish synthetic sample cohorts")
 
-    # backward compatible flags
     parser.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -86,28 +86,55 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if command == "publish-sample":
-        from tools.publish_sample_data import main as sample_main
-
-        return sample_main()
+        script = Path(__file__).resolve().parents[2] / "tools" / "publish_sample_data.py"
+        if not script.is_file():
+            # installed package may not include tools/; fall back to project root
+            script = args.project_root / "tools" / "publish_sample_data.py"
+        runpy.run_path(str(script), run_name="__main__")
+        return 0
 
     rows = _read_csv(args.csv_path)
     if command == "publish-topology":
         ref = publish_link_topology(
             store, rows, producer_version="0.1.0.dev0", source=source, promote=True
         )
-        print(json.dumps({"dataset": "rpa_topology", "generation_id": ref.generation_id, "status": ref.manifest.status.value}))
+        print(
+            json.dumps(
+                {
+                    "dataset": "rpa_topology",
+                    "generation_id": ref.generation_id,
+                    "status": ref.manifest.status.value,
+                }
+            )
+        )
         return 0
     if command == "publish-fact":
         ref = publish_observations(
             store, rows, producer_version="0.1.0.dev0", source=source, promote=True
         )
-        print(json.dumps({"dataset": "netlynx_fact", "generation_id": ref.generation_id, "status": ref.manifest.status.value}))
+        print(
+            json.dumps(
+                {
+                    "dataset": "netlynx_fact",
+                    "generation_id": ref.generation_id,
+                    "status": ref.manifest.status.value,
+                }
+            )
+        )
         return 0
     if command == "publish-ftth":
         ref = publish_ftth_mapping(
             store, rows, producer_version="0.1.0.dev0", source=source, promote=True
         )
-        print(json.dumps({"dataset": "rpa_ftth_mapping", "generation_id": ref.generation_id, "status": ref.manifest.status.value}))
+        print(
+            json.dumps(
+                {
+                    "dataset": "rpa_ftth_mapping",
+                    "generation_id": ref.generation_id,
+                    "status": ref.manifest.status.value,
+                }
+            )
+        )
         return 0
 
     print(f"unknown command: {command}", file=__import__("sys").stderr)

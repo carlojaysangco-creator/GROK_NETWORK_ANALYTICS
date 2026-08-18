@@ -16,6 +16,7 @@ from .ftth import FtthMapping, destinations_for_access, load_ftth_mappings, publ
 from .graph_builder import build_graph
 from .link_schema import LinkRecord, LinkRole, link_record_from_mapping, link_records_from_rows
 from .reference import graph_from_promoted, publish_link_topology
+from .routing_policy import RoutingPolicy, default_policy
 from .service import analyze, validate_request
 
 __all__ = [
@@ -31,9 +32,11 @@ __all__ = [
     "PathResultType",
     "RoutePair",
     "RouteRequest",
+    "RoutingPolicy",
     "TransportFrequency",
     "analyze",
     "build_graph",
+    "default_policy",
     "destinations_for_access",
     "graph_from_promoted",
     "link_record_from_mapping",
