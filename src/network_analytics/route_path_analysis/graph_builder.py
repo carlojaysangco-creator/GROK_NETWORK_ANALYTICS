@@ -7,36 +7,53 @@ from typing import Iterable
 import networkx as nx
 
 from .link_schema import LinkRecord, LinkRole
+from .routing_policy import RoutingPolicy, default_policy
 
 
-def build_graph(records: Iterable[LinkRecord]) -> nx.Graph:
+def build_graph(
+    records: Iterable[LinkRecord],
+    policy: RoutingPolicy | None = None,
+) -> nx.Graph:
     """Construct an undirected transport graph.
 
-    Rules:
     - MEMBER rows never contribute capacity/traffic to topology edges.
-    - Parallel PARENT/PHYSICAL edges between the same unordered pair aggregate:
-      capacity sums when present; max util takes the maximum; weight takes minimum.
-    - Missing capacity/util remain None (never zero-filled).
+    - Parallel PARENT/PHYSICAL edges aggregate capacity; max util takes max;
+      weight takes minimum after policy resolution.
+    - Missing capacity/util remain None.
     """
 
+    active = policy or default_policy()
     graph = nx.Graph()
-    # key: frozenset({a, z}) -> aggregate state
     aggregates: dict[frozenset[str], dict] = {}
 
     for record in records:
         if record.role is LinkRole.MEMBER:
-            # Diagnostic only — do not shape topology capacity
             continue
         a, z = record.normalized_ends()
         if a == z:
             continue
+        # Explicit weight from row wins; otherwise policy/link-type
+        explicit = None if record.weight == 1.0 and record.link_type else record.weight
+        # Prefer explicit non-default weights; if weight is default 1.0, still allow policy
+        resolved = active.edge_weight(
+            a_end=a,
+            z_end=z,
+            link_type=record.link_type,
+            explicit_weight=record.weight if record.weight != 1.0 else None,
+        )
+        # If row carried weight==1.0 and link_type is TRANSPORT, policy may still return 1.0
+        if record.weight != 1.0:
+            resolved = active.edge_weight(
+                a_end=a, z_end=z, link_type=record.link_type, explicit_weight=record.weight
+            )
+
         key = frozenset({a, z})
         slot = aggregates.get(key)
         if slot is None:
             aggregates[key] = {
                 "a": a,
                 "z": z,
-                "weight": record.weight,
+                "weight": resolved,
                 "capacity_mbps": record.capacity_mbps,
                 "max_util": record.max_util_pct,
                 "link_type": record.link_type,
@@ -45,7 +62,7 @@ def build_graph(records: Iterable[LinkRecord]) -> nx.Graph:
             }
             continue
 
-        slot["weight"] = min(float(slot["weight"]), float(record.weight))
+        slot["weight"] = min(float(slot["weight"]), float(resolved))
         slot["parent_count"] = int(slot["parent_count"]) + 1
         if record.capacity_mbps is not None:
             if slot["capacity_mbps"] is None:
@@ -75,4 +92,5 @@ def build_graph(records: Iterable[LinkRecord]) -> nx.Graph:
             member_count=slot["member_count"],
             parent_count=int(slot["parent_count"]),
         )
+    graph.graph["routing_policy_version"] = active.version
     return graph

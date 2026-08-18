@@ -8,7 +8,14 @@ from dash import Dash, Input, Output, dcc, html
 from flask import jsonify
 
 from network_analytics.shared.config import ApplicationConfig
-from network_analytics.ui.pages import data_layout, netlynx_layout, register_rpa, rpa_layout
+from network_analytics.ui.pages import (
+    admin_layout,
+    data_layout,
+    netlynx_layout,
+    register_admin,
+    register_rpa,
+    rpa_layout,
+)
 
 
 _NAVIGATION = (
@@ -39,7 +46,7 @@ def _status_banner(config: ApplicationConfig) -> html.Div:
             html.Strong("Safe local mode"),
             html.Span(f"Collection {collection}"),
             html.Span(f"Live topology {live}"),
-            html.Span("Generation-backed data paths active"),
+            html.Span("Admin publish is local GenerationStore only"),
         ],
         id="runtime-status",
         className="status-banner",
@@ -52,11 +59,6 @@ def _placeholder(title: str, detail: str) -> html.Div:
         [
             html.H2(title),
             html.P(detail),
-            html.P(
-                "Domain logic is being added while preserving ownership boundaries "
-                "and protected contracts.",
-                className="muted",
-            ),
         ],
         className="panel",
     )
@@ -127,7 +129,8 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
         if route == "/":
             return _placeholder(
                 "Overview",
-                "Unified workspace for Route Path Analysis and NetLynx operational analytics.",
+                "Unified workspace for Route Path Analysis and NetLynx. "
+                "Use Admin to publish local CSV cohorts; Data shows generation lineage.",
             )
         if route == "/route-path-analysis":
             return rpa_layout(config)
@@ -136,10 +139,7 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
         if route == "/data":
             return data_layout(config)
         if route == "/admin":
-            return _placeholder(
-                "Admin",
-                "Controlled administrative actions. Writes require authentication and single-writer coordination.",
-            )
+            return admin_layout(config)
         return _not_found()
 
     @app.callback(
@@ -154,6 +154,7 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
         )
 
     register_rpa(app, config)
+    register_admin(app, config)
 
     @app.server.get("/healthz")
     def healthz():
