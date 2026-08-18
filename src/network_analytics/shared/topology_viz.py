@@ -1,8 +1,4 @@
-"""Pyvis HTML topology artifacts (visualization only).
-
-NetworkX graphs remain the calculation authority. These helpers never invent
-edges; they only draw what the caller supplies.
-"""
+"""Pyvis HTML topology artifacts (visualization only)."""
 
 from __future__ import annotations
 
@@ -12,15 +8,58 @@ from typing import Iterable
 import networkx as nx
 
 
+class TopologyVizUnavailable(RuntimeError):
+    """Raised when pyvis is not installed."""
+
+
 def _require_pyvis():
     try:
         from pyvis.network import Network
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "pyvis is required for topology HTML artifacts. "
-            "Install with: pip install -e \".[rpa]\""
+    except ImportError as exc:
+        raise TopologyVizUnavailable(
+            "pyvis is not installed. Install with: pip install -e \".[rpa]\""
         ) from exc
     return Network
+
+
+def neighborhood_subgraph(
+    graph: nx.Graph,
+    focus_nodes: Iterable[str],
+    *,
+    hop: int = 1,
+    max_nodes: int = 120,
+) -> nx.Graph:
+    focus = {str(n).upper() for n in focus_nodes}
+    keep = set(focus)
+    frontier = set(focus)
+    for _ in range(max(0, hop)):
+        nxt: set[str] = set()
+        for node in frontier:
+            if node not in graph:
+                # try original casing match
+                matches = [n for n in graph.nodes if str(n).upper() == node]
+                node_key = matches[0] if matches else None
+            else:
+                node_key = node
+            if node_key is None:
+                continue
+            for nbr in graph.neighbors(node_key):
+                nxt.add(str(nbr).upper())
+        keep |= nxt
+        frontier = nxt
+        if len(keep) >= max_nodes:
+            break
+
+    node_map = {str(n).upper(): n for n in graph.nodes}
+    chosen = []
+    for key in keep:
+        if key in node_map:
+            chosen.append(node_map[key])
+        if len(chosen) >= max_nodes:
+            break
+    if not chosen:
+        return graph.copy()
+    return graph.subgraph(chosen).copy()
 
 
 def render_graph_html(
@@ -32,12 +71,15 @@ def render_graph_html(
     highlight_edges: Iterable[tuple[str, str]] | None = None,
     height: str = "720px",
     width: str = "100%",
+    max_nodes: int = 150,
 ) -> Path:
-    """Write an interactive Pyvis HTML file for the given graph."""
-
     Network = _require_pyvis()
     output_path = output_path.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if graph.number_of_nodes() > max_nodes:
+        focus = list(highlight_nodes or list(graph.nodes)[:10])
+        graph = neighborhood_subgraph(graph, focus, hop=1, max_nodes=max_nodes)
 
     hi_nodes = {str(n).upper() for n in (highlight_nodes or [])}
     hi_edges = set()
@@ -65,8 +107,7 @@ def render_graph_html(
 
     for a, z, data in graph.edges(data=True):
         ak, zk = str(a).upper(), str(z).upper()
-        edge_key = frozenset({ak, zk})
-        highlighted = edge_key in hi_edges
+        highlighted = frozenset({ak, zk}) in hi_edges
         util = data.get("max_util")
         cap = data.get("capacity_mbps")
         weight = data.get("weight")
@@ -85,11 +126,13 @@ def render_graph_html(
             title=" · ".join(title_bits),
         )
 
-    # pyvis write_html may try notebook paths; write then inject title banner
     net.write_html(str(output_path), open_browser=False, notebook=False)
     try:
         html = output_path.read_text(encoding="utf-8")
-        banner = f"<div style='padding:8px 12px;background:#1a2332;color:#e7ecf3;font-family:system-ui'>{title}</div>"
+        banner = (
+            f"<div style='padding:8px 12px;background:#1a2332;color:#e7ecf3;"
+            f"font-family:system-ui'>{title}</div>"
+        )
         if "<body>" in html:
             html = html.replace("<body>", f"<body>{banner}", 1)
             output_path.write_text(html, encoding="utf-8")
@@ -104,24 +147,19 @@ def render_path_on_graph(
     output_path: Path,
     *,
     title: str | None = None,
+    hop: int = 1,
+    max_nodes: int = 120,
 ) -> Path:
     nodes = [str(n) for n in path_nodes]
     edges = list(zip(nodes[:-1], nodes[1:]))
-    # Optional: subgraph neighborhood for readability on large graphs
-    if graph.number_of_nodes() > 80 and nodes:
-        keep = set(n.upper() for n in nodes)
-        for n in list(keep):
-            if n in graph:
-                keep.update(str(nbr).upper() for nbr in graph.neighbors(n))
-        sub = graph.subgraph([n for n in graph.nodes if str(n).upper() in keep]).copy()
-    else:
-        sub = graph
+    sub = neighborhood_subgraph(graph, nodes, hop=hop, max_nodes=max_nodes) if nodes else graph
     return render_graph_html(
         sub,
         output_path,
         title=title or (" → ".join(nodes) if nodes else "Path"),
         highlight_nodes=nodes,
         highlight_edges=edges,
+        max_nodes=max_nodes,
     )
 
 
@@ -134,4 +172,10 @@ def render_edge_list_graph(
     g = nx.Graph()
     for a, z, link_id in edges:
         g.add_edge(str(a), str(z), link_id=link_id or "")
-    return render_graph_html(g, output_path, title=title, highlight_nodes=g.nodes, highlight_edges=g.edges)
+    return render_graph_html(
+        g,
+        output_path,
+        title=title,
+        highlight_nodes=list(g.nodes),
+        highlight_edges=list(g.edges),
+    )

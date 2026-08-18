@@ -6,6 +6,7 @@ from typing import Iterable
 
 import networkx as nx
 
+from .gold_roles import GoldDevice
 from .link_schema import LinkRecord, LinkRole
 from .routing_policy import RoutingPolicy, default_policy
 
@@ -15,27 +16,32 @@ def build_graph(
     policy: RoutingPolicy | None = None,
     *,
     prefer_explicit_weight: bool = True,
+    gold_lookup: dict[str, GoldDevice] | None = None,
 ) -> nx.Graph:
-    """Construct an undirected transport graph.
-
-    - MEMBER rows never contribute capacity/traffic to topology edges.
-    - Parallel PARENT/PHYSICAL edges aggregate capacity; max util takes max;
-      weight takes minimum after policy resolution.
-    - Missing capacity/util remain None.
-    - When prefer_explicit_weight is True, a non-default row weight is used as-is
-      (still subject to N4I floor). Default weight 1.0 may be replaced by
-      link-type policy weights.
-    """
-
     active = policy or default_policy()
+    gold = gold_lookup or {}
     graph = nx.Graph()
     aggregates: dict[frozenset[str], dict] = {}
+    audit: list[dict] = []
 
     for record in records:
         if record.role is LinkRole.MEMBER:
             continue
         a, z = record.normalized_ends()
         if a == z:
+            continue
+
+        a_gold = gold.get(a)
+        z_gold = gold.get(z)
+        if (a_gold and a_gold.excluded) or (z_gold and z_gold.excluded):
+            audit.append(
+                {
+                    "reason": "excluded_gold_device",
+                    "a_end": a,
+                    "z_end": z,
+                    "link_id": record.link_id,
+                }
+            )
             continue
 
         explicit = record.weight if prefer_explicit_weight and record.weight != 1.0 else None
@@ -75,21 +81,26 @@ def build_graph(
                 slot["max_util"] = max(float(slot["max_util"]), float(record.max_util_pct))
         if record.member_count is not None:
             current = slot["member_count"]
-            if current is None:
-                slot["member_count"] = record.member_count
-            else:
-                slot["member_count"] = int(current) + int(record.member_count)
+            slot["member_count"] = (
+                record.member_count if current is None else int(current) + int(record.member_count)
+            )
 
     for slot in aggregates.values():
-        graph.add_edge(
-            slot["a"],
-            slot["z"],
-            weight=float(slot["weight"]),
-            capacity_mbps=slot["capacity_mbps"],
-            max_util=slot["max_util"],
-            link_type=str(slot["link_type"]),
-            member_count=slot["member_count"],
-            parent_count=int(slot["parent_count"]),
-        )
+        a, z = slot["a"], slot["z"]
+        attrs = {
+            "weight": float(slot["weight"]),
+            "capacity_mbps": slot["capacity_mbps"],
+            "max_util": slot["max_util"],
+            "link_type": str(slot["link_type"]),
+            "member_count": slot["member_count"],
+            "parent_count": int(slot["parent_count"]),
+        }
+        if a in gold:
+            attrs["a_role"] = gold[a].role
+        if z in gold:
+            attrs["z_role"] = gold[z].role
+        graph.add_edge(a, z, **attrs)
+
     graph.graph["routing_policy_version"] = active.version
+    graph.graph["gold_exclusion_audit"] = audit
     return graph
