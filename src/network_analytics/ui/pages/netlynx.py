@@ -1,4 +1,4 @@
-"""NetLynx monitoring page – offline promoted observations only."""
+"""NetLynx monitoring + NOC case summary from promoted FACT."""
 
 from __future__ import annotations
 
@@ -6,12 +6,43 @@ from dash import html
 
 from network_analytics.data_platform import GenerationStore
 from network_analytics.netlynx import load_observations
+from network_analytics.netlynx.cases import detect_cases
 from network_analytics.shared.config import ApplicationConfig
 
 
 def netlynx_layout(config: ApplicationConfig) -> html.Div:
     store = GenerationStore(config.paths.data_root / "generations")
     observations = load_observations(store)
+    cases = detect_cases(store)
+
+    case_block: list = []
+    if cases:
+        case_rows = []
+        for case in cases:
+            case_rows.append(
+                html.Tr(
+                    [
+                        html.Td(case.case_id),
+                        html.Td(case.kind.value),
+                        html.Td(str(len(case.affected_link_ids))),
+                        html.Td(case.fact_generation_id or "—"),
+                    ]
+                )
+            )
+        case_block = [
+            html.H3("NOC cases (derived, read-only)"),
+            html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [html.Th("CaseId"), html.Th("Kind"), html.Th("Links"), html.Th("FACT gen")]
+                        )
+                    ),
+                    html.Tbody(case_rows),
+                ],
+                className="data-table",
+            ),
+        ]
 
     if not observations:
         return html.Div(
@@ -22,14 +53,16 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
                     "Collection remains disabled; publish an offline cohort to populate this view.",
                     className="muted",
                 ),
+                *case_block,
             ],
             className="panel",
         )
 
-    # Parent-only summary for display (members diagnostic)
-    parents = [o for o in observations if o.interface_type.value == "LAG_PARENT" or o.interface_type.value == "PHYSICAL"]
-    if not parents:
-        parents = observations
+    parents = [
+        o
+        for o in observations
+        if o.interface_type.value in {"LAG_PARENT", "PHYSICAL"}
+    ] or observations
 
     rows = []
     for obs in parents[:100]:
@@ -58,6 +91,8 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
                 f"({observations[0].source_generation_id}). Collection is disabled.",
                 className="muted",
             ),
+            *case_block,
+            html.H3("Observations"),
             html.Table(
                 [
                     html.Thead(

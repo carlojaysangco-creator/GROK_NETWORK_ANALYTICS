@@ -13,6 +13,7 @@ from .contracts import (
 )
 from .daily import DailyUnavailable, resolve_daily_graph, resolve_weekly_graph
 from .ftth import FtthMapping, destinations_for_access, load_ftth_mappings, publish_ftth_mapping
+from .ftth_analysis import FtthAnalysisResult, analyze_ftth_access
 from .graph_builder import build_graph
 from .link_schema import LinkRecord, LinkRole, link_record_from_mapping, link_records_from_rows
 from .reference import graph_from_promoted, publish_link_topology
@@ -22,6 +23,7 @@ from .service import analyze, validate_request
 __all__ = [
     "AnalysisResult",
     "DailyUnavailable",
+    "FtthAnalysisResult",
     "FtthMapping",
     "HopMetric",
     "LinkRecord",
@@ -35,6 +37,7 @@ __all__ = [
     "RoutingPolicy",
     "TransportFrequency",
     "analyze",
+    "analyze_ftth_access",
     "build_graph",
     "default_policy",
     "destinations_for_access",
