@@ -2,38 +2,50 @@
 
 Clean, native-only Network Analytics platform for fixed-network engineering and operations.
 
-This repository is a from-scratch implementation of the full end-state architecture originally defined for the Fixed Network Analytics convergence. It contains **no legacy V73 source tree** and treats the native engine as the sole calculation authority from day one.
+No legacy V73 source tree. Native engine is the sole calculation authority.
 
 ## Ownership domains
 
 | Domain | Responsibility |
 |--------|----------------|
-| **Route Path Analysis** | Engineering / planning path computation, capacity, utilisation, bottleneck, ECMP, alternates, N4I, FTTH, history |
-| **NetLynx** | Collection (disabled by default), vendor parsers, operational normalisation, FACT / dimensions, trends, anomalies, monitoring |
-| **Shared** | UI shell, versioned contracts, immutable generation lifecycle, runtime state, security, locking, artifacts |
+| **Route Path Analysis** | Path computation, capacity, utilisation, bottleneck, ECMP, alternates, FTTH, history |
+| **NetLynx** | Collection (disabled by default), FACT/dimensions, trends, monitoring |
+| **Shared** | UI shell, contracts, immutable generations, promotion, LKG, runtime state |
 
 ## Non-negotiable rules
 
-- Loopback bind (`127.0.0.1`) by default
+- Loopback (`127.0.0.1`) by default
 - Collection and live topology disabled by default
 - Immutable generations + atomic promotion + last-known-good
-- Strict null and status semantics (`null` ≠ `0`)
-- Planning truth and observed operational truth remain distinct
-- No secrets in source, logs, or fixtures
-- Domain packages never contain absolute legacy paths
+- Missing numerics stay null (never coerced to 0)
+- LAG_PARENT authority; members diagnostic only
+- No secrets in source or Git
+
+## Current capability
+
+- GenerationStore (create → validate → publish → promote / LKG)
+- Tabular link → graph builder (parallel parents aggregate; members excluded from capacity)
+- Native equal-min-weight path selection + alternates
+- Signed bandwidth overlay (ECMP share on defaults; util floors at 0)
+- Publish topology / FACT cohorts into generations
+- Interactive RPA page (demo graph)
+- NetLynx page (promoted observations)
+- Data page (lineage / pointers)
+- Future-phase contracts: DFON/segments, OLT homing, NOC cases, gated live topology (disabled)
 
 ## Quick start
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # or .venv\\Scripts\\activate on Windows
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 pip install -e ".[test,rpa]"
+pytest -q
 network-analytics --check
 network-analytics
 ```
 
-The application listens on `http://127.0.0.1:8050` by default.
+App: `http://127.0.0.1:8050`
 
 ## Status
 
-Foundation bootstrap in progress. Full end-state includes DFON / segment cost, OLT homing, NOC affected topology, and gated live topology.
+Foundation through monitoring/lineage UI is in place. Next: Daily fail-closed path, FTTH mapping wiring, deeper Admin safety, and progressive implementation of future-phase contracts behind flags.
