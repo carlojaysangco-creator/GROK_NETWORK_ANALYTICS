@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import networkx as nx
 
+from .bandwidth import share_additional_bw_across_defaults
 from .contracts import (
     AnalysisResult,
     PairResult,
@@ -61,6 +62,7 @@ def analyze(graph: nx.Graph, request: RouteRequest) -> AnalysisResult:
             alternate_branches=request.alternate_branches,
         )
         metrics = selection_to_metrics(graph, selection)
+        metrics = share_additional_bw_across_defaults(metrics, n.additional_bw_mbps)
         pair_results.append(
             PairResult(
                 source=n.source,
