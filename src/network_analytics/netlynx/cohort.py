@@ -1,4 +1,8 @@
-"""Offline FACT/observation cohort publish and read."""
+"""Offline FACT/observation cohort publish and read.
+
+Column aliases aligned with Fixed_Network_Analytics FACT / link_ip_schema:
+LinkID, AEnd_NE, ZEnd_NE, Interface_Type, InUti, OutUti, Capacity, SnapshotTime.
+"""
 
 from __future__ import annotations
 
@@ -11,24 +15,13 @@ from network_analytics.data_platform import (
     SourceIdentity,
     ValidationSummary,
 )
+from network_analytics.shared.numbers import optional_float, utilization_to_percent
 from network_analytics.shared.status import LinkState
 
 from .contracts import InterfaceType, Observation
 
 DATASET_FACT = "netlynx_fact"
 SCHEMA_VERSION = "fact-v1"
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None or (isinstance(value, str) and not str(value).strip()):
-        return None
-    try:
-        parsed = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if parsed != parsed:
-        return None
-    return parsed
 
 
 def _interface_type(value: object) -> InterfaceType:
@@ -49,7 +42,7 @@ def _link_state(value: object) -> LinkState:
     text = str(value or "").strip().lower()
     if text in {"up", "u", "active"}:
         return LinkState.UP
-    if text in {"down", "d", "inactive"}:
+    if text in {"down", "d", "inactive", "admin down", "admin_down"}:
         return LinkState.DOWN
     if text in {"unavailable"}:
         return LinkState.UNAVAILABLE
@@ -57,31 +50,37 @@ def _link_state(value: object) -> LinkState:
 
 
 def observation_from_row(row: Mapping) -> Observation | None:
-    lower = {str(k).strip().lower(): v for k, v in row.items()}
+    lower = {str(k).strip().lower().replace(" ", "_"): v for k, v in row.items()}
 
     def pick(*keys: str):
         for key in keys:
-            if key.lower() in lower:
-                return lower[key.lower()]
+            k = key.lower().replace(" ", "_")
+            if k in lower and lower[k] not in (None, ""):
+                return lower[k]
+        for key in keys:
+            token = key.lower().replace(" ", "_")
+            for lk, lv in lower.items():
+                if token in lk and lv not in (None, ""):
+                    return lv
         return None
 
-    link_id = str(pick("link_id", "linkid") or "").strip()
-    snapshot = str(pick("snapshot_time", "snapshot", "time") or "").strip()
+    link_id = str(pick("link_id", "linkid", "link") or "").strip()
+    snapshot = str(pick("snapshot_time", "snapshottime", "snapshot", "time", "date_end") or "").strip()
     if not link_id or not snapshot:
         return None
 
     return Observation(
         link_id=link_id,
         snapshot_time=snapshot,
-        a_end=(str(pick("a_end", "aend") or "").strip().upper() or None),
-        z_end=(str(pick("z_end", "zend") or "").strip().upper() or None),
+        a_end=(str(pick("a_end", "aend", "a_end_ne", "aend_ne") or "").strip().upper() or None),
+        z_end=(str(pick("z_end", "zend", "z_end_ne", "zend_ne") or "").strip().upper() or None),
         interface_type=_interface_type(pick("interface_type", "if_type", "role")),
-        capacity_mbps=_optional_float(pick("capacity_mbps", "capacity")),
-        in_util_pct=_optional_float(pick("in_util_pct", "in_util", "inuti")),
-        out_util_pct=_optional_float(pick("out_util_pct", "out_util", "oututi")),
-        state=_link_state(pick("state", "link_state", "status")),
+        capacity_mbps=optional_float(pick("capacity_mbps", "capacity")),
+        in_util_pct=utilization_to_percent(pick("in_util_pct", "in_util", "inuti", "in_uti")),
+        out_util_pct=utilization_to_percent(pick("out_util_pct", "out_util", "oututi", "out_uti")),
+        state=_link_state(pick("state", "link_state", "status", "status_tag")),
         vendor=(str(pick("vendor") or "").strip() or None),
-        domain=(str(pick("domain") or "").strip() or None),
+        domain=(str(pick("domain", "area") or "").strip() or None),
     )
 
 

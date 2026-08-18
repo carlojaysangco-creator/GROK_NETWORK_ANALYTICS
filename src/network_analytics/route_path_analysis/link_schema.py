@@ -1,7 +1,8 @@
 """Normalized link records for graph construction.
 
-Missing numeric values remain None. They are never coerced to zero.
-LAG_PARENT is the logical topology authority; LAG_MEMBER is diagnostic.
+Field aliases aligned with Fixed_Network_Analytics link_ip_schema /
+native_graph column detection (AEnd_NE, ZEnd_NE, Capacity, InUti, …).
+Missing numeric values remain None. LAG_MEMBER never shapes topology capacity.
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Iterable, Mapping
+
+from network_analytics.shared.numbers import optional_float, optional_int, utilization_to_percent
 
 
 class LinkRole(StrEnum):
@@ -37,38 +40,13 @@ class LinkRecord:
         return self.a_end.strip().upper(), self.z_end.strip().upper()
 
 
-def _as_optional_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, str) and not value.strip():
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    if parsed != parsed or parsed in {float("inf"), float("-inf")}:  # NaN / inf
-        return None
-    return parsed
-
-
-def _as_optional_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, str) and not value.strip():
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _as_role(value: Any) -> LinkRole:
     if value is None:
         return LinkRole.PHYSICAL
-    text = str(value).strip().lower()
-    if text in {"parent", "lag_parent", "lag-parent"}:
+    text = str(value).strip().lower().replace("-", "_")
+    if text in {"parent", "lag_parent"} or "parent" in text:
         return LinkRole.PARENT
-    if text in {"member", "lag_member", "lag-member"}:
+    if text in {"member", "lag_member"} or "member" in text:
         return LinkRole.MEMBER
     if text in {"physical", "phy"}:
         return LinkRole.PHYSICAL
@@ -76,41 +54,53 @@ def _as_role(value: Any) -> LinkRole:
 
 
 def link_record_from_mapping(row: Mapping[str, Any]) -> LinkRecord | None:
-    """Build a LinkRecord from a loose tabular row.
-
-    Returns None when endpoints are missing (row is rejected, not zero-filled).
-    """
-
     def pick(*keys: str) -> Any:
-        lower = {str(k).strip().lower(): v for k, v in row.items()}
+        lower = {str(k).strip().lower().replace(" ", "_"): v for k, v in row.items()}
         for key in keys:
-            if key.lower() in lower:
-                return lower[key.lower()]
+            k = key.lower().replace(" ", "_")
+            if k in lower and lower[k] not in (None, ""):
+                return lower[k]
+        # substring fallback for headers like "Capacity (Mbps)"
+        for key in keys:
+            token = key.lower().replace(" ", "_")
+            for lk, lv in lower.items():
+                if token in lk and lv not in (None, ""):
+                    return lv
         return None
 
-    a_raw = pick("a_end", "aend", "source", "a_end_ne", "aend_ne")
-    z_raw = pick("z_end", "zend", "destination", "z_end_ne", "zend_ne")
+    a_raw = pick(
+        "a_end", "aend", "a_end_ne", "aend_ne", "source", "router",
+        "node_a", "from", "from_node",
+    )
+    z_raw = pick(
+        "z_end", "zend", "z_end_ne", "zend_ne", "destination", "dest",
+        "node_b", "to", "to_node",
+    )
     a_end = str(a_raw or "").strip().upper()
     z_end = str(z_raw or "").strip().upper()
     if not a_end or not z_end:
         return None
 
-    weight = _as_optional_float(pick("weight", "metric", "cost"))
+    weight = optional_float(pick("weight", "metric", "cost"))
     if weight is None:
         weight = 1.0
 
-    capacity = _as_optional_float(pick("capacity_mbps", "capacity", "bw_mbps", "bandwidth_mbps"))
-    max_util = _as_optional_float(pick("max_util_pct", "max_util", "util_pct", "utilization"))
-    in_util = _as_optional_float(pick("in_util_pct", "in_util", "inuti"))
-    out_util = _as_optional_float(pick("out_util_pct", "out_util", "oututi"))
+    capacity = optional_float(
+        pick("capacity_mbps", "capacity", "capacity_(mbps)", "bw_mbps", "bandwidth_mbps")
+    )
+    in_util = utilization_to_percent(pick("in_util_pct", "in_util", "inuti", "in_uti", "rx_pct", "pct_in"))
+    out_util = utilization_to_percent(pick("out_util_pct", "out_util", "oututi", "out_uti", "tx_pct", "pct_out"))
+    max_util = utilization_to_percent(
+        pick("max_util_pct", "max_util", "max_util_(%)", "util_pct", "utilization")
+    )
     if max_util is None:
         candidates = [v for v in (in_util, out_util) if v is not None]
         max_util = max(candidates) if candidates else None
 
-    link_id = pick("link_id", "linkid", "id")
+    link_id = pick("link_id", "linkid", "link", "moentity")
     parent_id = pick("parent_link_id", "parent_id", "lag_parent")
-    member_count = _as_optional_int(pick("member_count", "members"))
-    link_type = str(pick("link_type", "type") or "TRANSPORT").strip() or "TRANSPORT"
+    member_count = optional_int(pick("member_count", "members"))
+    link_type = str(pick("link_type", "linktype", "type") or "TRANSPORT").strip() or "TRANSPORT"
     role = _as_role(pick("role", "interface_type", "lag_role"))
 
     return LinkRecord(
@@ -130,7 +120,6 @@ def link_record_from_mapping(row: Mapping[str, Any]) -> LinkRecord | None:
 
 
 def link_records_from_rows(rows: Iterable[Mapping[str, Any]]) -> tuple[list[LinkRecord], int]:
-    """Return accepted records and rejected row count."""
     accepted: list[LinkRecord] = []
     rejected = 0
     for row in rows:
