@@ -31,20 +31,13 @@ def detect_cases(
     store: GenerationStore,
     config: CaseDetectionConfig | None = None,
 ) -> tuple[TopologyCase, ...]:
-    """Derive simple cases from the promoted FACT cohort.
-
-    Does not collect, does not write, and does not mutate routing truth.
-    """
-
     cfg = config or CaseDetectionConfig()
     observations = [o for o in load_observations(store) if _authoritative(o)]
     if not observations:
         return ()
 
     generation_id = observations[0].source_generation_id
-    down_ids = tuple(
-        sorted({o.link_id for o in observations if o.state in {LinkState.DOWN}})
-    )
+    down_ids = tuple(sorted({o.link_id for o in observations if o.state in {LinkState.DOWN}}))
     high_ids = tuple(
         sorted(
             {
@@ -75,10 +68,7 @@ def detect_cases(
                 affected_link_ids=high_ids,
                 fact_generation_id=generation_id,
                 state=DataState.FRESH,
-                metadata={
-                    "count": len(high_ids),
-                    "threshold_pct": cfg.high_util_threshold_pct,
-                },
+                metadata={"count": len(high_ids), "threshold_pct": cfg.high_util_threshold_pct},
             )
         )
     combined = tuple(sorted(set(down_ids) | set(high_ids)))
@@ -94,3 +84,10 @@ def detect_cases(
             )
         )
     return tuple(cases)
+
+
+def get_case(store: GenerationStore, case_id: str, config: CaseDetectionConfig | None = None) -> TopologyCase | None:
+    for case in detect_cases(store, config):
+        if case.case_id == case_id:
+            return case
+    return None
