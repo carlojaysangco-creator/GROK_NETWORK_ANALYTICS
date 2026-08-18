@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dash import Dash, Input, Output, dcc, html
-from flask import jsonify
+from flask import abort, jsonify, send_from_directory
 
 from network_analytics.shared.config import ApplicationConfig
 from network_analytics.ui.pages import (
@@ -46,7 +46,7 @@ def _status_banner(config: ApplicationConfig) -> html.Div:
             html.Strong("Safe local mode"),
             html.Span(f"Collection {collection}"),
             html.Span(f"Live topology {live}"),
-            html.Span("Admin publish is local GenerationStore only"),
+            html.Span("Pyvis topology artifacts enabled"),
         ],
         id="runtime-status",
         className="status-banner",
@@ -55,20 +55,13 @@ def _status_banner(config: ApplicationConfig) -> html.Div:
 
 
 def _placeholder(title: str, detail: str) -> html.Div:
-    return html.Div(
-        [
-            html.H2(title),
-            html.P(detail),
-        ],
-        className="panel",
-    )
+    return html.Div([html.H2(title), html.P(detail)], className="panel")
 
 
 def _not_found() -> html.Div:
     return html.Div(
         [
             html.H2("Page not found"),
-            html.P("Use the primary navigation to return to an available workspace."),
             dcc.Link("Return to Overview", href="/", className="action-link"),
         ],
         className="panel",
@@ -129,8 +122,7 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
         if route == "/":
             return _placeholder(
                 "Overview",
-                "Unified workspace for Route Path Analysis and NetLynx. "
-                "Use Admin to publish local CSV cohorts; Data shows generation lineage.",
+                "RPA paths and NOC cases can open interactive Pyvis topology HTML from local artifacts.",
             )
         if route == "/route-path-analysis":
             return rpa_layout(config)
@@ -155,6 +147,20 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
 
     register_rpa(app, config)
     register_admin(app, config)
+
+    artifact_root = config.paths.artifact_root.resolve()
+
+    @app.server.get("/artifacts/<path:filename>")
+    def serve_artifact(filename: str):
+        # Prevent path traversal; only files under artifact_root
+        target = (artifact_root / filename).resolve()
+        try:
+            target.relative_to(artifact_root)
+        except ValueError:
+            abort(404)
+        if not target.is_file():
+            abort(404)
+        return send_from_directory(artifact_root, filename)
 
     @app.server.get("/healthz")
     def healthz():

@@ -1,4 +1,4 @@
-"""Route Path Analysis – P2P, FTTH, Compare."""
+"""Route Path Analysis – P2P, FTTH, Compare + Pyvis path artifacts."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from network_analytics.route_path_analysis.compare import compare_pair
 from network_analytics.route_path_analysis.demo_graph import build_demo_graph, demo_nodes
 from network_analytics.route_path_analysis.ftth_analysis import analyze_ftth_access
 from network_analytics.route_path_analysis.history import append_run
+from network_analytics.route_path_analysis.viz import write_path_artifact
 from network_analytics.shared.config import ApplicationConfig
 
 
@@ -25,7 +26,7 @@ def _store(config: ApplicationConfig) -> GenerationStore:
     return GenerationStore(config.paths.data_root / "generations")
 
 
-def _path_cards(pair) -> list:
+def _path_cards(pair, graph, config: ApplicationConfig) -> list:
     cards = []
     if pair.min_weight is None:
         cards.append(html.P("No path found.", className="error"))
@@ -47,12 +48,33 @@ def _path_cards(pair) -> list:
             meta.append(f"max util {path.maximum_utilization_pct:g}%")
         if path.minimum_remaining_mbps is not None:
             meta.append(f"min remaining {path.minimum_remaining_mbps:g} Mbps")
+
+        viz_link = None
+        if path.nodes:
+            try:
+                out = write_path_artifact(
+                    graph,
+                    path,
+                    config.paths.artifact_root / "rpa",
+                    run_prefix=f"{pair.source}_{pair.destination}",
+                )
+                rel = out.relative_to(config.paths.artifact_root.resolve()).as_posix()
+                viz_link = html.A(
+                    "Open topology view",
+                    href=f"/artifacts/{rel}",
+                    target="_blank",
+                    className="action-link",
+                )
+            except Exception as exc:  # noqa: BLE001
+                viz_link = html.Span(f"Topology view unavailable: {exc}", className="muted")
+
         cards.append(
             html.Div(
                 [
                     html.Strong(f"#{path.order} {path.path_class.value} (weight {path.weight:g})"),
                     html.Div(hop_text, className="path-nodes"),
                     html.Div(" · ".join(meta), className="muted") if meta else None,
+                    html.Div(viz_link, style={"marginTop": "0.35rem"}) if viz_link else None,
                 ],
                 className="path-card",
             )
@@ -76,7 +98,7 @@ def rpa_layout(config: ApplicationConfig) -> html.Div:
         [
             html.H2("Route Path Analysis"),
             html.P(
-                "Native engine. Daily never falls back to Weekly. Compare shows both when present.",
+                "Native engine + Pyvis path topology artifacts. Daily never falls back to Weekly.",
                 className="muted",
             ),
             html.P(f"Topology source: {source_label}", className="muted"),
@@ -189,12 +211,24 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
                 return html.P("Select destination for Compare.", className="muted")
             cmp = compare_pair(store, str(source), str(destination))
             blocks = [html.P(w, className="muted") for w in cmp.warnings]
-            if cmp.weekly is not None:
+            weekly_graph = None
+            daily_graph = None
+            try:
+                w = resolve_weekly_graph(store)
+                weekly_graph = w.graph if w else None
+            except Exception:
+                pass
+            try:
+                d = resolve_daily_graph(store)
+                daily_graph = d.graph
+            except DailyUnavailable:
+                pass
+            if cmp.weekly is not None and weekly_graph is not None:
                 blocks.append(html.H3(f"Weekly ({cmp.weekly_generation_id})"))
-                blocks.extend(_path_cards(cmp.weekly.pairs[0]))
-            if cmp.daily is not None:
+                blocks.extend(_path_cards(cmp.weekly.pairs[0], weekly_graph, config))
+            if cmp.daily is not None and daily_graph is not None:
                 blocks.append(html.H3(f"Daily ({cmp.daily_generation_id})"))
-                blocks.extend(_path_cards(cmp.daily.pairs[0]))
+                blocks.extend(_path_cards(cmp.daily.pairs[0], daily_graph, config))
             if cmp.weekly is None and cmp.daily is None:
                 blocks.append(html.P("No topology available for Compare.", className="error"))
             return html.Div(blocks)
@@ -242,11 +276,7 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
                 blocks.append(html.P(w, className="muted"))
             for bng, analysis in result.per_bng:
                 blocks.append(html.H3(f"To {bng}"))
-                blocks.extend(_path_cards(analysis.pairs[0]))
-                try:
-                    append_run(config.paths.history_root if hasattr(config.paths, 'history_root') else config.paths.data_root / "history", analysis, topology_generation_id=gen_id)
-                except Exception:
-                    pass
+                blocks.extend(_path_cards(analysis.pairs[0], graph, config))
             return html.Div(blocks)
 
         if not destination:
@@ -263,14 +293,10 @@ def register_rpa(app: Dash, config: ApplicationConfig) -> None:
             return html.P(str(exc), className="error")
 
         try:
-            append_run(
-                config.paths.data_root / "history",
-                result,
-                topology_generation_id=gen_id,
-            )
+            append_run(config.paths.data_root / "history", result, topology_generation_id=gen_id)
         except Exception:
             pass
 
         cards = [html.P(source_note, className="muted")]
-        cards.extend(_path_cards(result.pairs[0]))
+        cards.extend(_path_cards(result.pairs[0], graph, config))
         return html.Div(cards)

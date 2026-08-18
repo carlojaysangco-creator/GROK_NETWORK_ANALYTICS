@@ -1,4 +1,4 @@
-"""NetLynx monitoring + NOC cases and graph summaries."""
+"""NetLynx monitoring + NOC cases with Pyvis topology links."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from network_analytics.data_platform import GenerationStore
 from network_analytics.netlynx import load_observations
 from network_analytics.netlynx.cases import detect_cases
 from network_analytics.netlynx.noc_graph import summarize_all_case_graphs
+from network_analytics.netlynx.viz import write_case_artifact
 from network_analytics.shared.config import ApplicationConfig
 
 
@@ -21,6 +22,14 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
     if cases:
         case_rows = []
         for case in cases:
+            viz = None
+            try:
+                path = write_case_artifact(store, case.case_id, config.paths.artifact_root / "noc")
+                if path is not None:
+                    rel = path.relative_to(config.paths.artifact_root.resolve()).as_posix()
+                    viz = html.A("Topology", href=f"/artifacts/{rel}", target="_blank", className="action-link")
+            except Exception:
+                viz = html.Span("—", className="muted")
             case_rows.append(
                 html.Tr(
                     [
@@ -28,6 +37,7 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
                         html.Td(case.kind.value),
                         html.Td(str(len(case.affected_link_ids))),
                         html.Td(case.fact_generation_id or "—"),
+                        html.Td(viz or "—"),
                     ]
                 )
             )
@@ -37,7 +47,13 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
                 [
                     html.Thead(
                         html.Tr(
-                            [html.Th("CaseId"), html.Th("Kind"), html.Th("Links"), html.Th("FACT gen")]
+                            [
+                                html.Th("CaseId"),
+                                html.Th("Kind"),
+                                html.Th("Links"),
+                                html.Th("FACT gen"),
+                                html.Th("View"),
+                            ]
                         )
                     ),
                     html.Tbody(case_rows),
@@ -64,7 +80,7 @@ def netlynx_layout(config: ApplicationConfig) -> html.Div:
                 )
             )
         graph_block = [
-            html.H3("Affected adjacency (text summary)"),
+            html.H3("Affected adjacency summary"),
             html.Table(
                 [
                     html.Thead(
