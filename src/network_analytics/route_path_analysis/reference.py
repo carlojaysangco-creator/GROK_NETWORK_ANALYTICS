@@ -15,8 +15,9 @@ from network_analytics.data_platform import (
     ValidationSummary,
 )
 
+from .gold_roles import load_gold_lookup
 from .graph_builder import build_graph
-from .link_schema import LinkRecord, link_records_from_rows
+from .link_schema import LinkRecord, LinkRole, link_records_from_rows
 
 DATASET_TOPOLOGY = "rpa_topology"
 SCHEMA_VERSION = "topology-v1"
@@ -39,8 +40,6 @@ def publish_link_topology(
     source: SourceIdentity | None = None,
     promote: bool = True,
 ) -> GenerationReference:
-    """Validate link rows, write inventory, publish, optionally promote."""
-
     row_list = list(rows)
     accepted, rejected = link_records_from_rows(row_list)
     issues: list[str] = []
@@ -55,7 +54,6 @@ def publish_link_topology(
         metadata={"row_count_input": len(row_list)},
     )
 
-    # Persist accepted records as JSON lines for inventory hashing
     payload = "\n".join(
         json.dumps(
             {
@@ -76,11 +74,7 @@ def publish_link_topology(
     ).encode("utf-8")
     store.add_data_file(ref, "links.jsonl", payload + (b"\n" if payload else b""))
 
-    validation = ValidationSummary(
-        required_columns_ok=not issues,
-        null_ok=True,
-        issues=issues,
-    )
+    validation = ValidationSummary(required_columns_ok=not issues, null_ok=True, issues=issues)
     if issues:
         store.mark_rejected(ref, issues)
         return GenerationReference(ref.dataset_name, ref.generation_id, ref.path, store.load_manifest(ref.path))
@@ -109,8 +103,6 @@ def load_records_from_generation(ref: GenerationReference) -> list[LinkRecord]:
         if not line:
             continue
         raw = json.loads(line)
-        from .link_schema import LinkRole
-
         records.append(
             LinkRecord(
                 a_end=str(raw["a_end"]),
@@ -129,11 +121,11 @@ def load_records_from_generation(ref: GenerationReference) -> list[LinkRecord]:
 
 
 def graph_from_promoted(store: GenerationStore):
-    """Build a NetworkX graph from the promoted topology generation, if any."""
     ref = store.resolve_readable(DATASET_TOPOLOGY)
     if ref is None:
         return None
     records = load_records_from_generation(ref)
     if not records:
         return None
-    return build_graph(records)
+    gold = load_gold_lookup(store)
+    return build_graph(records, gold_lookup=gold or None)

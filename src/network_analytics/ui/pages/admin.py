@@ -1,4 +1,4 @@
-"""Admin page – local CSV paste publish under single-writer lock."""
+"""Admin page – local CSV publish under write lock with audit log."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from dash import Dash, Input, Output, State, dcc, html
 from network_analytics.data_platform import GenerationStore, SourceIdentity
 from network_analytics.netlynx import publish_observations
 from network_analytics.route_path_analysis import publish_ftth_mapping, publish_link_topology
+from network_analytics.shared.audit import PublishAuditLog, audit_event
 from network_analytics.shared.config import ApplicationConfig
 from network_analytics.shared.locking import WriteLock, WriteLockTimeout
 
@@ -22,13 +23,29 @@ def _lock(config: ApplicationConfig) -> WriteLock:
     return WriteLock(config.paths.runtime_root / "write_lock.sqlite3")
 
 
-def admin_layout(_config: ApplicationConfig) -> html.Div:
+def _audit(config: ApplicationConfig) -> PublishAuditLog:
+    return PublishAuditLog(config.paths.runtime_root / "publish_audit.jsonl")
+
+
+def admin_layout(config: ApplicationConfig) -> html.Div:
+    recent = _audit(config).list_recent(limit=15)
+    audit_rows = [
+        html.Tr(
+            [
+                html.Td(e.at),
+                html.Td(e.dataset),
+                html.Td(e.generation_id),
+                html.Td(e.status),
+                html.Td(f"{e.accepted}/{e.rejected}"),
+            ]
+        )
+        for e in recent
+    ]
     return html.Div(
         [
             html.H2("Admin"),
             html.P(
-                "Publish local CSV text into GenerationStore under a single-writer lock. "
-                "Collection and live topology remain disabled.",
+                "Publish local CSV under a single-writer lock. Audit events are local-only.",
                 className="muted",
             ),
             html.Div(
@@ -37,9 +54,9 @@ def admin_layout(_config: ApplicationConfig) -> html.Div:
                     dcc.Dropdown(
                         id="admin-dataset",
                         options=[
-                            {"label": "RPA topology (rpa_topology)", "value": "topology"},
-                            {"label": "NetLynx FACT (netlynx_fact)", "value": "fact"},
-                            {"label": "FTTH mapping (rpa_ftth_mapping)", "value": "ftth"},
+                            {"label": "RPA topology", "value": "topology"},
+                            {"label": "NetLynx FACT", "value": "fact"},
+                            {"label": "FTTH mapping", "value": "ftth"},
                         ],
                         value="topology",
                         clearable=False,
@@ -61,7 +78,25 @@ def admin_layout(_config: ApplicationConfig) -> html.Div:
                 className="primary-btn",
                 style={"marginTop": "0.75rem"},
             ),
-            html.Div(id="admin-result", className="admin-result", style={"marginTop": "1rem"}),
+            html.Div(id="admin-result", style={"marginTop": "1rem"}),
+            html.H3("Recent publish audit"),
+            html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [
+                                html.Th("At"),
+                                html.Th("Dataset"),
+                                html.Th("Generation"),
+                                html.Th("Status"),
+                                html.Th("acc/rej"),
+                            ]
+                        )
+                    ),
+                    html.Tbody(audit_rows or [html.Tr([html.Td("No events", colSpan=5)])]),
+                ],
+                className="data-table",
+            ),
         ],
         className="panel",
     )
@@ -108,6 +143,17 @@ def register_admin(app: Dash, config: ApplicationConfig) -> None:
                     name = "rpa_ftth_mapping"
                 else:
                     return html.P("Unknown dataset.", className="error")
+                _audit(config).append(
+                    audit_event(
+                        actor="admin-ui",
+                        dataset=name,
+                        generation_id=ref.generation_id,
+                        status=ref.manifest.status.value,
+                        accepted=ref.manifest.accepted_count,
+                        rejected=ref.manifest.rejected_count,
+                        source="paste",
+                    )
+                )
         except WriteLockTimeout:
             return html.P("Another publish is in progress; try again shortly.", className="error")
         except Exception as exc:  # noqa: BLE001
@@ -120,6 +166,6 @@ def register_admin(app: Dash, config: ApplicationConfig) -> None:
                     f"(status={ref.manifest.status.value}, accepted={ref.manifest.accepted_count}, "
                     f"rejected={ref.manifest.rejected_count})."
                 ),
-                html.P("Open Data or NetLynx / RPA to read the promoted generation.", className="muted"),
+                html.P("Refresh Admin/Data pages to see audit and lineage.", className="muted"),
             ]
         )

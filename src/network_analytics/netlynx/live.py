@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from network_analytics.shared.config import ApplicationConfig
 
 from .future_contracts import LiveJobState, LiveTopologyJob, LiveTopologyRequest
+from .live_allowlist import default_allowlist, load_allowlist, validate_request_against_allowlist
 
 
 class LiveTopologyDisabled(RuntimeError):
@@ -14,13 +17,9 @@ class LiveTopologyDisabled(RuntimeError):
 def submit_live_topology_job(
     config: ApplicationConfig,
     request: LiveTopologyRequest,
+    *,
+    allowlist_path: Path | None = None,
 ) -> LiveTopologyJob:
-    """Accept a live topology request only when the feature flag is on.
-
-    Even when enabled, real device access remains LIVE_VALIDATION_PENDING until
-    a separate authorised validation task. This function never opens sockets.
-    """
-
     if not config.live_topology_enabled:
         raise LiveTopologyDisabled(
             "live topology is disabled; enable only with collection and explicit policy"
@@ -28,7 +27,22 @@ def submit_live_topology_job(
     if not config.collection_enabled:
         raise LiveTopologyDisabled("live topology requires collection_enabled")
 
-    # Framework only – no transport, no Paramiko, no device I/O
+    path = allowlist_path or (config.paths.runtime_root / "live_allowlist.json")
+    allowlist = load_allowlist(path) if path.is_file() else default_allowlist()
+    ok, errors = validate_request_against_allowlist(
+        allowlist,
+        device_ids=request.device_ids,
+        command_profile=request.command_profile,
+    )
+    if not ok:
+        return LiveTopologyJob(
+            job_id=f"live-{request.request_id}",
+            request=request,
+            state=LiveJobState.FAILED,
+            live_validation_pending=True,
+            error="; ".join(errors),
+        )
+
     return LiveTopologyJob(
         job_id=f"live-{request.request_id}",
         request=request,

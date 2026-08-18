@@ -15,6 +15,7 @@ KNOWN_DATASETS = (
     "rpa_olt_homing",
     "rpa_gold_devices",
     "netlynx_fact",
+    "netlynx_dim_link",
 )
 
 
@@ -44,16 +45,11 @@ def data_layout(config: ApplicationConfig) -> html.Div:
             html.Div(
                 [
                     html.H3(dataset),
-                    html.P(
-                        f"Promoted: {promoted or '—'} · LKG: {lkg or '—'}",
-                        className="muted",
-                    ),
+                    html.P(f"Promoted: {promoted or '—'} · LKG: {lkg or '—'}", className="muted"),
                     html.Table(
                         [
                             html.Thead(
-                                html.Tr(
-                                    [html.Th("Generation"), html.Th("Status"), html.Th("Created")]
-                                )
+                                html.Tr([html.Th("Generation"), html.Th("Status"), html.Th("Created")])
                             ),
                             html.Tbody(rows or [html.Tr([html.Td("No generations", colSpan=3)])]),
                         ],
@@ -68,8 +64,7 @@ def data_layout(config: ApplicationConfig) -> html.Div:
         [
             html.H2("Data"),
             html.P(
-                "Promoted/LKG only. CLI: publish-topology, publish-fact (streaming), "
-                "publish-ftth, build-daily, publish-sample.",
+                "Promoted/LKG only. See docs/DEFINITION_OF_DONE.md for the full checklist.",
                 className="muted",
             ),
             *sections,
