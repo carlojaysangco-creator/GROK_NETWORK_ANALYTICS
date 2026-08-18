@@ -1,4 +1,4 @@
-/* Minimal foundation styles – will be expanded with the UI. */
+/* Foundation + RPA page styles */
 
 :root {
   --bg: #0f1419;
@@ -8,11 +8,10 @@
   --muted: #8b9bb4;
   --accent: #3b82f6;
   --accent-soft: rgba(59, 130, 246, 0.15);
+  --danger: #f87171;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
@@ -22,11 +21,7 @@ body {
   line-height: 1.5;
 }
 
-.app-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 
 .app-header {
   background: var(--surface);
@@ -51,23 +46,10 @@ body {
   color: var(--muted);
 }
 
-.app-header h1 {
-  margin: 0.15rem 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
+.app-header h1 { margin: 0.15rem 0; font-size: 1.5rem; font-weight: 600; }
+.subtitle { margin: 0; color: var(--muted); font-size: 0.9rem; }
 
-.subtitle {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.primary-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
+.primary-nav { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 
 .nav-link {
   color: var(--muted);
@@ -76,17 +58,8 @@ body {
   border-radius: 6px;
   font-size: 0.9rem;
 }
-
-.nav-link:hover {
-  color: var(--text);
-  background: var(--accent-soft);
-}
-
-.nav-link-active {
-  color: var(--text);
-  background: var(--accent-soft);
-  font-weight: 500;
-}
+.nav-link:hover { color: var(--text); background: var(--accent-soft); }
+.nav-link-active { color: var(--text); background: var(--accent-soft); font-weight: 500; }
 
 .content-shell {
   flex: 1;
@@ -107,14 +80,7 @@ body {
   font-size: 0.85rem;
   margin-bottom: 1.25rem;
 }
-
-.status-banner strong {
-  color: var(--accent);
-}
-
-.page-panel {
-  min-height: 12rem;
-}
+.status-banner strong { color: var(--accent); }
 
 .panel {
   background: var(--surface);
@@ -122,16 +88,35 @@ body {
   border-radius: 10px;
   padding: 1.5rem;
 }
+.panel h2 { margin-top: 0; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+.error { color: var(--danger); }
+.action-link { color: var(--accent); }
 
-.panel h2 {
-  margin-top: 0;
+.rpa-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  align-items: end;
+  margin: 1.25rem 0;
 }
+.field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+.primary-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+.primary-btn:hover { filter: brightness(1.08); }
 
-.muted {
-  color: var(--muted);
-  font-size: 0.9rem;
+.path-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  background: rgba(0,0,0,0.15);
 }
-
-.action-link {
-  color: var(--accent);
-}
+.path-nodes { font-family: ui-monospace, monospace; margin: 0.35rem 0; }

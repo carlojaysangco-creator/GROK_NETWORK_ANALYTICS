@@ -8,6 +8,7 @@ from dash import Dash, Input, Output, dcc, html
 from flask import jsonify
 
 from network_analytics.shared.config import ApplicationConfig
+from network_analytics.ui.pages import register_rpa, rpa_layout
 
 
 _NAVIGATION = (
@@ -38,7 +39,7 @@ def _status_banner(config: ApplicationConfig) -> html.Div:
             html.Strong("Safe local mode"),
             html.Span(f"Collection {collection}"),
             html.Span(f"Live topology {live}"),
-            html.Span("Foundation bootstrap"),
+            html.Span("Native RPA demo graph active"),
         ],
         id="runtime-status",
         className="status-banner",
@@ -52,8 +53,8 @@ def _placeholder(title: str, detail: str) -> html.Div:
             html.H2(title),
             html.P(detail),
             html.P(
-                "This page is a structural placeholder. Domain logic will be added "
-                "while preserving ownership boundaries and protected contracts.",
+                "Domain logic is being added while preserving ownership boundaries "
+                "and protected contracts.",
                 className="muted",
             ),
         ],
@@ -131,10 +132,7 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
                 "Unified workspace for Route Path Analysis and NetLynx operational analytics.",
             )
         if route == "/route-path-analysis":
-            return _placeholder(
-                "Route Path Analysis",
-                "Native path computation, capacity, utilisation, and topology (Weekly / Daily / FTTH).",
-            )
+            return rpa_layout(config)
         if route == "/netlynx":
             return _placeholder(
                 "NetLynx",
@@ -162,6 +160,8 @@ def create_dash_app(config: ApplicationConfig) -> Dash:
             "nav-link nav-link-active" if href == route else "nav-link"
             for _key, _label, href in _NAVIGATION
         )
+
+    register_rpa(app, config)
 
     @app.server.get("/healthz")
     def healthz():
